@@ -1,7 +1,8 @@
-# Bibliotecas
+ # Bibliotecas
 import random
 # import array
 import time
+# import defusedxml
 import matplotlib.pyplot as plt
 # import math
 from math import exp
@@ -68,8 +69,9 @@ def init_grid (input, initial_width = 2, initial_height = 2, sf = 0.3, alfa = 0.
     None
     """
 
-    samples_size = len(input[0])
-    
+    samples_size = len(input[0])   # primeira alteracao: esse valor deve ser alterado de input[0] para input 
+    number_samples = len(input)
+
     global weights
     weights = []
     
@@ -80,13 +82,22 @@ def init_grid (input, initial_width = 2, initial_height = 2, sf = 0.3, alfa = 0.
     acumulated_error = []  
     
     global gt
-    gt = -samples_size * log(sf)            
+    gt = -number_samples * log(sf)              # alterei aqui por causa da primeira alteracao 
     
     global fd
     fd = 0.5
     
-    global initial_learning_rate
-    initial_learning_rate = alfa
+    global alpha
+    alpha = alfa
+
+    global LR_growing                  # it's a vector so that your value could be preserved over iterations
+    LR_growing = [alfa]
+
+    global LR_smooth                    # it's a vector so that your value could be preserved over iterations
+    LR_smooth = [alfa]
+
+    global epoches
+    epoches = []                # [] -> [growing] -> [growing, suavization]
     
     total_neurons = initial_width * initial_height
     
@@ -129,10 +140,14 @@ def start_growing_phase (input, epochs):
     # print ("Growing Phase")
     # print ("-----------------------")
     
+    epoches.append(epochs) #append the number of iterations in growing phase
+
     # for each epoch
     for i in range (epochs):
         
         ts = time.time()
+
+        learning_rate(i)
         
         # print ("Epoch: " + str(i))
 
@@ -150,7 +165,7 @@ def start_growing_phase (input, epochs):
             error =  bmu["error"]
 
             # update the winner and the neighborhood
-            update_neighborhood(winner, sample, i, epochs)
+            update_neighborhood(winner, sample, i, growing=True)
         
             # save the acumulated error vector
             acumulated_error[winner] = acumulated_error[winner] + error
@@ -164,7 +179,8 @@ def start_growing_phase (input, epochs):
                 if not boundary:
                     spread_error(winner)
                 else:
-                    for b in boundary:
+                    for b in boundary:              # aqui está errado: está criando todos os que dá ao invés de um só!
+                        # print("No neuronio", winner, 'criou', (int+1), 'Sneuronios')
                         grow (winner, b)
                         acumulated_error[winner] = 0
         # print("time:" + str(time.time() - ts) + " seconds")
@@ -190,11 +206,15 @@ def start_smoothing_phase (input, epochs):
     # print ("Smoothing Phase")
     # print ("-----------------------")
     
+    epoches.append(epochs) #append the number of iterations in smooth phase
+
     # for each epoch
     for i in range (epochs):
         
         ts = time.time()
         
+        learning_rate(i)
+
         # print ("Epoch: " + str(i))
 
         # show a random sample to the network
@@ -215,7 +235,7 @@ def start_smoothing_phase (input, epochs):
             # winner, error = find_best_matching_unit(sample).values()
 
             # update the winner and the neighborhood
-            update_neighborhood(winner, sample, i, epochs)
+            update_neighborhood(winner, sample, i, growing=False)
             
         # print("time:" + str(time.time() - ts) + " seconds")
     
@@ -267,25 +287,57 @@ def find_best_matching_unit (sample):
     # return the winner
     return result
     
-def update_neighborhood(winner, sample, iteration, epochs):
+def update_neighborhood(winner, sample, epoch, growing):
     """Updates the map
     """
     
-    #print("updating neighborhood from neuron " + str(winner))
-    
+    # if(growing):
+    #     LR = LR_growing[epoch]
+    # else:
+    #     LR = LR_smooth[epoch]
+
+    LR = LR_growing[epoch] if growing else LR_smooth[epoch]
+
+
     # for each neuron weight
+    x, y = coordinate_map[winner]
+
     for i in range(len(weights)):
-        
-        # get the distance between each neuron and the winner
-        d = get_distance(i, winner)
-        
-        # for each weight of this neuron
-        for j in range(len(weights[i])):
+        if (i != None):
+            # get the distance between each neuron and the winner
+            d = get_distance(i, winner)
             
-            # update the neuron weight
-            weights[i][j] = weights[i][j] + neighbourhood_influence(d, iteration, epochs) * learning_rate(iteration, epochs) * (sample[j] - weights[i][j])
-        
+            # for each weight of this neuron
+            for j in range(len(weights[i])):
+                
+                # update the neuron weight
+                # weights[i][j] = weights[i][j] + neighbourhood_influence(d, iteration, epochs) * learning_rate(iteration, epochs) * (sample[j] - weights[i][j])
+                # weights[i][j] = weights[i][j] + learning_rate(epoch) * (sample[j] - weights[i][j]) * ((1 + (i == winner))/2) # The last part is a idea to update less if the neuron is boudary and more if it isn't
+                weights[i][j] = weights[i][j] + LR * (sample[j] - weights[i][j]) * neighbourhood_influence(d)
     return
+"""
+    neurons_to_update = [winner,                                # The winner has to have it's weight updated too
+                         get_neuron_by_coordinate_map(x+1, y),  # These are the neurons what must have their neurons updated
+                         get_neuron_by_coordinate_map(x, y+1),
+                         get_neuron_by_coordinate_map(x-1, y),
+                         get_neuron_by_coordinate_map(x, y-1)]
+    
+    for i in neurons_to_update:
+        if (i != None):
+        
+            # get the distance between each neuron and the winner
+            # d = get_distance(i, winner)                            # doesn't make sense
+            
+            # for each weight of this neuron
+            for j in range(len(weights[i])):
+                
+                # update the neuron weight
+                # weights[i][j] = weights[i][j] + neighbourhood_influence(d, iteration, epochs) * learning_rate(iteration, epochs) * (sample[j] - weights[i][j])
+                weights[i][j] = weights[i][j] + learning_rate(epoch) * (sample[j] - weights[i][j]) * ((1 + (i == winner))/2) # The last part is a idea to update less if the neuron is boudary and more if it isn't
+    
+    return
+"""
+        
     
 def get_distance(n1, n2):
     """Get Euclidian distance from neurons
@@ -301,36 +353,43 @@ def get_distance(n1, n2):
 
     return sqrt(a**2 + b**2)
     
-def neighbourhood_influence (d, iteration, epochs):
+def neighbourhood_influence (d):
     """Get the neighbourhood influence to update the neurons
     """
     
-    starting_neighbourhood_influence = 0.6
+    sigma = 1
     
-    # sigma original:
-    R = 3.8
-    sigma = (starting_neighbourhood_influence * (1 - R)/ len(weights))
-
-    # sigma used in Satelite project:
-    # sigma = (starting_neighbourhood_influence * exp(-iteration / epochs))
+    return (exp( -(pow(d, 2)) / (2 * (pow(sigma, 2))) )) 
     
-    return (exp( -d / (2 * (pow(sigma, 2)) ))) 
-    
-def learning_rate(iteration, epochs):
+def learning_rate(epoch):
     """Get the current learning rate to update the neurons
     """
-    
-    # original:
-    R = 3.8
-    return (initial_learning_rate * (1 - R)/ len(weights))
+    def v(n):
+        R = 3.8
+        return (1 - (R/n))
 
-    # used in Satelite project:
-    # return (initial_learning_rate * exp(-iteration / epochs))
+    
+    if (len(epoches) == 1):         # algorithm in growing process
+        if (epoch != 0):
+            LR_growing.append(
+                alpha * v(len(weights)) * LR_growing[epoch-1]
+            )
+    
+
+    if (len(epoches) == 2):        # algorithm in suavization process
+        if (epoch != 0):
+            LR_smooth.append(
+                alpha * v(len(weights)) * LR_smooth[epoch-1]
+            )
+
+    return
     
 def check_boundary (neuron, type = "available"):
     """Check's if there are available space in a given neuron neighborhood
     """
-    
+
+    #original:
+    '''
     if neuron is None:
         return []
     
@@ -338,7 +397,7 @@ def check_boundary (neuron, type = "available"):
     
     all_boundary = ["L", "R", "B", "T"]
     boundary = []
-    
+
     for i in range(len(coordinate_map)):
         
         # checking on left
@@ -357,11 +416,30 @@ def check_boundary (neuron, type = "available"):
         if (coordinate_map[i][0] == x and coordinate_map[i][1] == y + 1):
             boundary.append("T")
 
+
+    if (type == "available"):
+        return (list(set(all_boundary) - set(boundary)))
+    elif (type == "unavailable"):
+        return boundary
+    '''
+
+    x, y = coordinate_map[neuron]
+    
+    all_boundary = ["L", "R", "B", "T"]
+    neurons_to_update = {"R": get_neuron_by_coordinate_map(x+1, y),
+                     "T": get_neuron_by_coordinate_map(x, y+1),
+                     "L": get_neuron_by_coordinate_map(x-1, y),
+                     "B": get_neuron_by_coordinate_map(x, y-1)}
+
+    boundary = [key for key, value in neurons_to_update.items() if value is not None]
+    boundary
+
     if (type == "available"):
         return (list(set(all_boundary) - set(boundary)))
     elif (type == "unavailable"):
         return boundary
     
+
 def grow (neuron, boundary):
     """ Creates a new neuron.
     """
@@ -390,6 +468,9 @@ def grow (neuron, boundary):
 def add_weight(neuron, boundary):
     
     x, y = coordinate_map[neuron]
+    caseA = False
+    caseB = False
+    caseC = False
 
     # get the first neighbours
     first_neighbours = check_boundary(neuron, "unavailable")
@@ -402,20 +483,48 @@ def add_weight(neuron, boundary):
         "T": get_neuron_by_coordinate_map (x, y+1)
     }
 
-    if not(oposite[boundary] in first_neighbours):
-        neuron2 = dict_neuron2[first_neighbours[0]]     # Case A: No consecutive neighbours, get the first one
-    else:
-        neuron2 = dict_neuron2[oposite[boundary]]  # Case B: There are two consecutive neighbours
+    if oposite[boundary] in first_neighbours:
+        neuron2 = dict_neuron2[oposite[boundary]]  # Case A: There are two consecutive neighbours
+        caseA = True                # in this order, case A gains advantage
+    else:   # Case B: Get the node between the two
+        if ((boundary == 'R') & (get_neuron_by_coordinate_map (x + 2, y) != None)):
+            neuron2 = get_neuron_by_coordinate_map (x + 2, y)
+            caseB = True
+        elif ((boundary == 'L') & (get_neuron_by_coordinate_map (x - 2, y) != None)):
+            neuron2 = get_neuron_by_coordinate_map (x - 2, y)
+            caseB = True
+        elif ((boundary == 'T') & (get_neuron_by_coordinate_map (x, y + 2) != None)):
+            neuron2 = get_neuron_by_coordinate_map (x, y + 2)
+            caseB = True
+        elif ((boundary == 'B') & (get_neuron_by_coordinate_map (x, y - 2) != None)):
+            neuron2 = get_neuron_by_coordinate_map (x, y - 2)
+            caseB = True
 
-            
+        else:
+            neuron2 = dict_neuron2[first_neighbours[0]]     # Case C: No consecutive neighbours, get the first one
+            caseC = True
+
     ##### --------------------------- #####
     ##### Calculating the new weights #####
     
     new_weights = []
 
-    for i in range (len(weights[0])):
-        # new_weights.append(weights[neuron][i] + abs(weights[neuron][i] - weights[neuron2][i]))
-        new_weights.append(weights[neuron][i] + sqrt(weights[neuron][i]**2 + weights[neuron2][i]**2))
+    # for i in range (len(weights[0])):
+    #     # new_weights.append(weights[neuron][i] + abs(weights[neuron][i] - weights[neuron2][i]))
+    #     new_weights.append(weights[neuron][i] + sqrt(weights[neuron][i]**2 + weights[neuron2][i]**2))
+    
+    if (caseB):     # deiaxr ele primeiro para não correr o erro de cair no caso C erroneamente   
+        for i in range(len(weights[0])):
+            new_weights.append( (weights[neuron][i] + weights[neuron2][i]) / 2)
+
+    if (caseA | caseC):
+        for i in range(len(weights[0])):
+            if weights[neuron2][i] > weights[neuron][i]:
+                new_weights.append(weights[neuron][i] - (weights[neuron2][i] - weights[neuron][i]))
+            else:
+                new_weights.append(weights[neuron][i] - (weights[neuron][i] - weights[neuron2][i]))
+
+
 
     weights.append(new_weights)
     
@@ -435,9 +544,21 @@ def spread_error (neuron):
     """ Calculates the spread error
     """
     
-    x = coordinate_map[neuron][0]
-    y = coordinate_map[neuron][1]
+    x, y = coordinate_map[neuron]
+
+    neurons_to_update = [get_neuron_by_coordinate_map(x+1, y),
+                         get_neuron_by_coordinate_map(x, y+1),
+                         get_neuron_by_coordinate_map(x-1, y),
+                         get_neuron_by_coordinate_map(x, y-1)]
     
+    for i in neurons_to_update:
+        acumulated_error[i] += fd * acumulated_error[i]
+
+    # decrease the error of the winnerSS
+    acumulated_error[neuron] = gt/2
+    
+    # Original:
+    '''
     for i in range(len(coordinate_map)):
 
         x_temp, y_temp = coordinate_map[i]
@@ -460,12 +581,14 @@ def spread_error (neuron):
 
     # decrease the error of the winnerSS
     acumulated_error[neuron] = gt/2
+    '''
+
     
     return
     
 
 def get_neuron_labels (input, input_labels):
-    """Get's the labels of a neuron. Only work to single-label problemns.
+    """Get's the labels of a neuron. Only work to single-label cases.
     
     Parameters
     ----------
@@ -516,7 +639,7 @@ def get_neuron_labels (input, input_labels):
     return neuron_labels
     
 def check_neuron_accuracy (input, neuron_labels, input_labels):
-    """Check's neuron accuracy. Only works to single-lable problemns
+    """Check's neuron accuracy. Only works to single-label cases
     
     Parameters
     ----------
@@ -563,8 +686,21 @@ def check_neuron_accuracy (input, neuron_labels, input_labels):
     
     return
     
+def plot_map():
+    a, b = zip(*coordinate_map)
+
+    plt.scatter(a, b)
+
+    for i, (x, y) in enumerate(coordinate_map):
+        plt.text(x, y, str(i), fontsize=10, ha='right', va='bottom')
+
+    plt.title('GSOM map')
+    plt.show()
+
+    return
+
 def generate_confusion_matrix(input, neuron_labels, input_labels):
-    """Generates the confusion matrix. Only works to single-lable problemns
+    """Generates the confusion matrix. Only works to single-label cases
     
     Parameters
     ----------
@@ -694,7 +830,7 @@ def get_neuron_labels_mutilabel_list(input, labels_as_list, factor=0.5, include=
         label_weigths: list
             The label result to each neuron
     '''
-    r = get_neuron_labels_mutilabel(input, labels_as_list, factor)
+    r = get_neuron_labels_mutilabel(input, labels_as_list, factor, include)
     r_list = list()
     for i in range(len(r)):
         aux = []
@@ -848,7 +984,7 @@ def performace_measures(y_real, y_predicted, show=False):
         print("F1-Score: {0:.2%}".format(f1_score)) 
         print("Hamming Loss: {0:.2%}".format(hamming_loss)) 
 
-    return (accuracy, precision, recall, f1_score, hamming_loss)
+    return [accuracy, precision, recall, f1_score, hamming_loss]
 
 
 def selected_neurons_qdd(density):
@@ -913,15 +1049,13 @@ def data_catch(name):
             The labels to validate the model
     """
 
-    X, y, _, _ = load_dataset(name, 'train')
-    X_validation, y_validation, _, _ = load_dataset(name, 'test')
+    X, y, _, _ = load_dataset(name, 'undivided')
 
     # Data normalization
     scaler = MinMaxScaler()
     X = scaler.fit_transform(X.toarray())
-    X_validation = scaler.fit_transform(X_validation.toarray())
 
-    return X, y.toarray(), X_validation, y_validation.toarray()
+    return X, y.toarray()
 
 def model_validation(nome, X_train, y_train, X_validation, y_validation, growing_ideal, smooth_ideal, sf_ideal, alpha_ideal, time_ideal, curve_ideal):
     
@@ -947,34 +1081,59 @@ def model_validation(nome, X_train, y_train, X_validation, y_validation, growing
     print('Time:', time_)
     print(f'Neuron numbers: {len(neuron_labels_list)}')
     print("AUPRC média:", mean_curve)
-    performace_measures(y_validation, np.array(y_test_predicted) > 0.5)
+    results = performace_measures(y_validation, np.array(y_test_predicted) > 0.5, show=True)
+    results.append(mean_curve)
+    results.append(len(neuron_labels_list))
 
-    # Criar o gráfico da curva de precisão-recall
-    plt.figure()
-    plt.plot(recall, precision, color='darkorange', lw=2, label='Curva de Precisão-Recall (AUC = %0.2f)' % mean_curve)
-    plt.xlabel('Recall')
-    plt.ylabel('Precisão')
-    plt.xlim([0.0, 1.0])
-    plt.ylim([0.0, 1.05])
-    plt.title(str('Curva de Precisão-Recall do ' + nome))
-    plt.legend(loc="lower right")
-    # plt.show()
-    plt.savefig('grafico_validacao_'+nome+'.pdf', format='pdf')
-    plt.savefig('grafico_validacao_'+nome+'.png')
+    return results
 
-def find_best_parameters(data_title='emotions', iterations=10, n_growing=10, n_smooting=5, n_sf=10, n_alpha=10, show=False, findFacto=False):
-    X, y, X_validation, y_validation = data_catch(data_title)
+def find_best_parameters(data_title='emotions', iterations=10, n_growing=10, n_smooting=5, n_sf=10, n_alpha=10, show=False, findFactor=False):
+    X, y  = data_catch(data_title)
             
-    alpha_list = np.arange(0.005, 0.096, 0.005)   # 19 values
+    alpha_list = np.arange(0.005, 0.2, 0.01)   # 19 values
     sf_list = np.arange(0.05, 1, 0.05)             # 20 values
+    results = []    # [accuracy, precision, recall, f1_score, hamming_loss, AUC-mean, neuron_labels_list]
+    parameters_save = []
 
-    parameters = find_best_epoche(X, y, n_growing, n_smooting, sf_list, alpha_list, iterations)
-    # data: [growing_ideal, smooth_ideal, sf_ideal, alpha_ideal, time_ideal, curve_ideal]
+    k_fold = IterativeStratification(n_splits=10, order=1)
+    for i, (train, test) in enumerate(k_fold.split(X, y)):
+        print('============================')
+        print(f"Cross Validation folder - {i+1}")
+        print('============================')
+        parameters = find_best_epoche(X[train], y[train], n_growing, n_smooting, sf_list, alpha_list, iterations)
+        parameters_save.append(parameters)
+        # data: [growing_ideal, smooth_ideal, sf_ideal, alpha_ideal, time_ideal, curve_ideal]
+        results.append(model_validation(data_title, X[train], y[train], X[test], y[test], *parameters))
     
-    print("Final result:")
-    print(parameters)
+    print('End\n\nFinal Results:')
 
-    model_validation(data_title, X, y, X_validation, y_validation, *parameters)
+    for i, result in enumerate(parameters_save):
+        print(f"Folder {i+1}: {result}")
+
+    print(f"\n-----------------------------\n")
+    
+    for i, result in enumerate(results):
+        print(f"Folder {i+1}: {result}\n")
+
+    print(f"\n==============================\n")
+    
+    # Getting the result mean
+    results_array = np.array(results)
+
+    results_mean = np.mean(results_array, axis=0)
+    results_std = np.std(results_array, axis=0)
+
+    
+
+    print(f"""Metric | mean | std
+          \nAccuracy: {results_mean[0]}, {results_std[0]} 
+          \nPrecision: {results_mean[1]}, {results_std[1]} 
+          \nRecall: {results_mean[2]}, {results_std[2]} 
+          \nF1-Score: {results_mean[3]}, {results_std[3]} 
+          \nHamming Loss: {results_mean[4]}, {results_std[4]} 
+          \nAUC-mean: {results_mean[5]}, {results_std[5]} 
+          \nNumber of Neurons: {results_mean[6]}, {results_std[6]} 
+    """)    # [accuracy, precision, recall, f1_score, hamming_loss, AUC-mean, neuron_labels_list]
 
     return 
 
@@ -982,36 +1141,29 @@ def find_best_parameters(data_title='emotions', iterations=10, n_growing=10, n_s
 
 def find_best_epoche(X, y, times_growing, times_smooting, sf_list, alpha_list, iterations):
 
-    parameters_list = list()
-    best_index = 0
-    best_curve = 0
+    X_train = X[:int(len(X)*0.7)]
+    X_test = X[int(len(X)*0.7):]
 
-    k_fold = IterativeStratification(n_splits=5, order=1)
-    for i, (train, test) in enumerate(k_fold.split(X, y)):
-        print(f'\n\n-------------------------\nCross Validation {i+1}:')
-        parameters_list.append(find_best_growing_value(X[train], X[test], y[train], y[test], times_growing, times_smooting, sf_list, alpha_list, iterations))
-        if (parameters_list[i][-1] > best_curve):
-            best_curve = parameters_list[i][-1]
-            best_index = i
+    y_train = y[:int(len(y)*0.7)]
+    y_test = y[int(len(y)*0.7):]
 
-    print('End of Cross Validation\nAll parameters:', parameters_list, '\n\nChosed:', best_index+1, 'folder')
+    return find_best_growing_value(X_train, X_test, y_train, y_test, times_growing, times_smooting, sf_list, alpha_list, iterations)
 
-    return parameters_list[best_index]
+    
 
 
 
 def find_best_growing_value(X_train, X_test, y_train, y_test, times_growing, times_smooting, sf_list, alpha_list, iterations, break_code=True):
-    print("Entrou no growing")
     parameters_list = list()
     best_index = 0
     best_curve = 0
     
     for j, n_growing in enumerate(range(1, times_growing + 1)):
-        print("Fase do Growing:", n_growing)
+        print("Entering in Growing Phase:", n_growing)
         parameters_list.append(find_best_smooth_value(X_train, X_test, y_train, y_test, n_growing, times_smooting, sf_list, alpha_list, iterations))
         parameters_list[j].insert(0, n_growing)
         # [n_growing, n_smooth, sf_ideal, alpha_ideal, time_ideal, curve]
-        print("Resultado deste Growing:", parameters_list[j])
+        print("Results in Growing Phase:", parameters_list[j])
 
         if (parameters_list[j][-1] > best_curve):
             best_index = j
@@ -1019,33 +1171,34 @@ def find_best_growing_value(X_train, X_test, y_train, y_test, times_growing, tim
         elif ((break_code == True) & (j != 0)):     # So that at least 2 growing parameters exist
             break       # small chance that a algorithm with more growing phases have a better parameter list
 
-    print('Saiu do growing. Resultado:', parameters_list[best_index], '\n')
+    print('Out of Growing Phase. Results:', parameters_list[best_index], '\n')
     return parameters_list[best_index] # [n_growing, n_smooth, sf_ideal, alpha_ideal, size_ideal, proportion_ideal, time_ideal]
 
 
 
 def find_best_smooth_value(X_train, X_test, y_train, y_test, n_growing, times_smooting, sf_list, alpha_list, iterations):
-    print('Entrou no smooth')
     parameters_list = list()
     best_index = 0
     best_curve = 0
 
     for j, n_smooth in enumerate(range(1, times_smooting + 1)):
-        print("Fase do Smooth:", n_smooth)
+        print('Entering in Smooth Phase:', n_smooth)
         parameters_list.append(find_best_sf(X_train, X_test, y_train, y_test, n_growing, n_smooth, sf_list, alpha_list, iterations))
         parameters_list[j].insert(0, n_smooth)
         # [n_smooth, sf_ideal, alpha_ideal, time_ideal, curve]
+        print("Results in Smooth Phase:", parameters_list[j])
+
 
         if (parameters_list[j][-1] > best_curve):
             best_index = j
             best_curve = parameters_list[j][-1]
         
-    print('Saiu do smooth. Resultado:', parameters_list[best_index], '\n')
+    print('Out of Smooth Phase. Results:', parameters_list[best_index], '\n')
     return parameters_list[best_index]
             
 def find_best_sf(X_train, X_test, y_train, y_test, n_growing, n_smoothing, sf_list, alpha_list, iterations):
 
-    print("Entrou no sf")
+    print("Entering in SF evaluation")
     each_alpha = list()
     comparacao = list()
     comparacao_index = list()
@@ -1056,7 +1209,7 @@ def find_best_sf(X_train, X_test, y_train, y_test, n_growing, n_smoothing, sf_li
 
         pool = multiprocessing.Pool()
 
-        each_alpha.append(pool.map(novo_find_alpha, valor_iteracoes))
+        each_alpha.append(pool.map(find_alpha, valor_iteracoes))
 
         # melhor_valor = max([sub[-1] for sub in each_alpha[j]])
         # comparacao.append([each_alpha[j].index(melhor_valor), melhor_valor])
@@ -1082,10 +1235,10 @@ def find_best_sf(X_train, X_test, y_train, y_test, n_growing, n_smoothing, sf_li
     melhor_resultado.insert(0, int(index_melhor_externo + 1) * sf_list[0])       # valor de sf
 
     # print(f'Melhor resultado: {melhor_resultado}')
-    print("Saiu do sf")
+    print("Out of SF evaluation")
     return melhor_resultado
 
-def novo_find_alpha(input):
+def find_alpha(input):
     # print('Entrou no alpha')
     X_train, X_test, y_train, y_test, n_growing, n_smoothing, n_sf, n_alpha, iterations = input
     time_values = list()
